@@ -8,32 +8,50 @@ REMARK     285 WAS MISSING.
 REMARK     285 PROTEIN DATA BANK CONVENTIONS REQUIRE THAT
 REMARK     285 CRYST1 RECORD IS INCLUDED, BUT THE VALUES ON
 REMARK     285 THIS RECORD ARE MEANINGLESS.
-HETATM    1  C   UNL X   1     -34.592 -37.550  22.578  1.00  0.00      SYST C  
-HETATM    2  C   UNL X   1     -34.866 -36.110  22.143  1.00  0.00      SYST C  
-HETATM    3  C   UNL X   1     -36.046 -35.429  22.781  1.00  0.00      SYST C  
-HETATM    4  C   UNL X   1     -36.262 -34.027  22.219  1.00  0.00      SYST C  
-HETATM    5  H   UNL X   1     -35.866 -35.380  23.861  1.00  0.00      SYST H  
-HETATM    6  H   UNL X   1     -36.938 -36.040  22.603  1.00  0.00      SYST H  
-HETATM    7  C   UNL X   1     -37.425 -33.352  22.901  1.00  0.00      SYST C  
-HETATM    8  H   UNL X   1     -36.468 -34.085  21.145  1.00  0.00      SYST H  
-HETATM    9  H   UNL X   1     -35.368 -33.412  22.373  1.00  0.00      SYST H  
-HETATM   10  O   UNL X   1     -33.471 -38.015  21.996  1.00  0.00      SYST O  
-HETATM   11  O   UNL X   1     -37.733 -32.158  22.348  1.00  0.00      SYST O  
-HETATM   12  O   UNL X   1     -35.307 -38.160  23.344  1.00  0.00      SYST O1-
-HETATM   13  O   UNL X   1     -34.101 -35.607  21.325  1.00  0.00      SYST O  
-HETATM   14  O   UNL X   1     -38.034 -33.807  23.855  1.00  0.00      SYST O  
-CONECT    1    2   10   12
-CONECT    2    1    3   13
+ATOM      1  C   UNL X   1     -34.590 -37.547  22.575  1.00  0.00      SYST C  
+ATOM      2  C   UNL X   1     -34.868 -36.109  22.145  1.00  0.00      SYST C  
+ATOM      3  C   UNL X   1     -36.062 -35.439  22.779  1.00  0.00      SYST C  
+ATOM      4  C   UNL X   1     -36.384 -34.091  22.138  1.00  0.00      SYST C  
+ATOM      5  H   UNL X   1     -35.854 -35.307  23.847  1.00  0.00      SYST H  
+ATOM      6  H   UNL X   1     -36.920 -36.111  22.670  1.00  0.00      SYST H  
+ATOM      7  C   UNL X   1     -37.735 -33.563  22.626  1.00  0.00      SYST C  
+ATOM      8  H   UNL X   1     -36.402 -34.187  21.046  1.00  0.00      SYST H  
+ATOM      9  H   UNL X   1     -35.591 -33.372  22.379  1.00  0.00      SYST H  
+ATOM     10  C   UNL X   1     -38.065 -32.199  22.018  1.00  0.00      SYST C  
+ATOM     11  H   UNL X   1     -37.720 -33.480  23.720  1.00  0.00      SYST H  
+ATOM     12  H   UNL X   1     -38.524 -34.279  22.366  1.00  0.00      SYST H  
+ATOM     13  C   UNL X   1     -39.432 -31.698  22.489  1.00  0.00      SYST C  
+ATOM     14  H   UNL X   1     -38.061 -32.265  20.922  1.00  0.00      SYST H  
+ATOM     15  H   UNL X   1     -37.285 -31.479  22.294  1.00  0.00      SYST H  
+ATOM     16  C   UNL X   1     -39.622 -30.229  22.188  1.00  0.00      SYST C  
+ATOM     17  H   UNL X   1     -39.515 -31.843  23.572  1.00  0.00      SYST H  
+ATOM     18  H   UNL X   1     -40.235 -32.257  21.997  1.00  0.00      SYST H  
+ATOM     19  O   UNL X   1     -35.261 -38.137  23.399  1.00  0.00      SYST O  
+ATOM     20  O   UNL X   1     -34.101 -35.611  21.326  1.00  0.00      SYST O  
+ATOM     21  O   UNL X   1     -39.019 -29.604  21.331  1.00  0.00      SYST O  
+ATOM     22  O   UNL X   1     -40.577 -29.659  22.960  1.00  0.00      SYST O  
+ATOM     23  O   UNL X   1     -33.528 -38.043  21.916  1.00  0.00      SYST O  
+CONECT    1    2   19   23
+CONECT    2    1    3   20
 CONECT    3    2    4    5    6
 CONECT    4    3    7    8    9
 CONECT    5    3
 CONECT    6    3
-CONECT    7    4   11   14
+CONECT    7    4   10   11   12
 CONECT    8    4
 CONECT    9    4
-CONECT   10    1
+CONECT   10    7   13   14   15
 CONECT   11    7
-CONECT   12    1
-CONECT   13    2
-CONECT   14    7
+CONECT   12    7
+CONECT   13   10   16   17   18
+CONECT   14   10
+CONECT   15   10
+CONECT   16   13   21   22
+CONECT   17   13
+CONECT   18   13
+CONECT   19    1
+CONECT   20    2
+CONECT   21   16
+CONECT   22   16
+CONECT   23    1
 END
