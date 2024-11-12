@@ -278,3 +278,46 @@ def get_substrate_aka_indexes(substrate):
     substrate_important_indexes['R'] = first_tail_atom_index
     
     return substrate_important_indexes
+
+import MDAnalysis as mda
+import numpy as np
+from scipy.spatial.transform import Rotation as R
+
+def rotate_atoms(universe, atom1_idx, atom2_idx, atom_list, angle_deg):
+    """
+    Rotates atoms in `atom_list` around the axis defined by `atom1_idx` and `atom2_idx` by `angle_deg`.
+    
+    Parameters:
+    - universe: MDAnalysis Universe object
+    - atom1_idx: Index of the first fixed atom
+    - atom2_idx: Index of the second fixed atom
+    - atom_list: List of atom indices to be rotated
+    - angle_deg: Angle of rotation in degrees
+    """
+    # Get coordinates of fixed atoms
+    atom1 = universe.atoms[atom1_idx]
+    atom2 = universe.atoms[atom2_idx]
+    coord1 = atom1.position
+    coord2 = atom2.position
+    
+    # Define the rotation axis (normalized vector between atom1 and atom2)
+    axis = coord2 - coord1
+    axis = axis / np.linalg.norm(axis)
+
+    # Define rotation angle in radians
+    angle_rad = np.deg2rad(angle_deg)
+
+    # Create the rotation object
+    rotation = R.from_rotvec(angle_rad * axis)
+
+    # Rotate each atom in the atom_list
+    for atom_idx in atom_list:
+        atom = universe.atoms[atom_idx]
+        # Translate the atom to the origin (relative to atom1)
+        atom_position = atom.position - coord1
+        # Apply rotation
+        rotated_position = rotation.apply(atom_position)
+        # Translate back to original frame
+        atom.position = rotated_position + coord1
+
+
