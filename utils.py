@@ -1,6 +1,7 @@
 import MDAnalysis as mda
 import numpy as np
 from collections import Counter
+from scipy.optimize import minimize
 
 vdw_radii = {'H':1.2,'C':1.7,'N':1.55,'O':1.52,'S':1.8,'F':1.47,'Br':1.85,'Mg':1.7}
 bond_dists ={'C-C':1.53,'C=O':1.23,'C-O':1.35,'C=N':1.35,'C-S':1.71,'S--N':2.45,'N-H':1.05,'C-N':1.382}
@@ -13,6 +14,102 @@ def get_atom_position(mol_universe,index):
 def get_dist(coord1,coord2):
     d=np.sqrt((coord1[0]-coord2[0])**2+(coord1[1]-coord2[1])**2+(coord1[2]-coord2[2])**2)
     return d
+
+def get_angle(coord1,coord2,coord3):
+        # Calculate vectors BA and BC
+        BA = coord1 - coord2
+        BC = coord3 - coord2
+
+        # Compute the dot product and magnitudes of BA and BC
+        dot_product = np.dot(BA, BC)
+        magnitude_BA = np.linalg.norm(BA)
+        magnitude_BC = np.linalg.norm(BC)
+
+        # Calculate the cosine of the angle
+        cos_theta = dot_product / (magnitude_BA * magnitude_BC)
+
+        # Handle potential floating-point errors
+        cos_theta = np.clip(cos_theta, -1.0, 1.0)
+
+        # Calculate the angle in radians and then convert to degrees
+        angle_radians = np.arccos(cos_theta)
+        angle_degrees = np.degrees(angle_radians)
+
+        return angle_degrees
+
+def atom_objective(point, centers, radii):
+    return sum((np.linalg.norm(point - center) - radius)**2 for center, radius in zip(centers, radii))
+
+def combined_objective(all_points, centers, radii):
+    # Split all_points into the three key points
+    C2, C3, O1 = np.split(all_points, len(all_points)/3)
+    
+    # Calculate atom-level errors for each point to fit them to sphere constraints
+    atom_err_C2 = atom_objective(C2, centers, radii[0])
+    atom_err_C3 = atom_objective(C3, centers, radii[1])
+    atom_err_O1 = atom_objective(O1, centers, radii[2])
+    
+    total_atom_err = atom_err_C2 + atom_err_C3 + atom_err_O1
+    
+    # Combine errors with weighting factors
+    return  total_atom_err 
+
+def optimize_points(centers, initial_guess, radii):
+    # Flatten initial guess as midpoint of each set of centers
+    # Set up optimization
+    tolerance = 1e-6
+    result = minimize(
+        combined_objective,
+        initial_guess,
+        args=(centers, radii),
+        tol=tolerance
+    )
+    C2, C3, O1 = np.split(result.x, 3)
+    # Check for successful optimization
+    if result.success or result.fun < tolerance:
+        print('CONVERGED')
+    else:
+        print('NOT CONVERGED')
+    return C2, C3, O1
+
+
+def angle_objective(atom1,atom2,atom3,angle):
+    angle_err = abs(get_angle(atom1,atom2,atom3) - angle)
+    return angle_err
+
+def combined_angle_objective(tail_coord, C1_coord, C2_coord, O1_coord, C3_coord, angles):
+    # Calculate atom-level errors for each point to fit them to sphere constraints
+    angle_err_C1_C2_R = angle_objective(C1_coord, C2_coord, tail_coord, angles[0])
+    angle_err_O1_C2_R = angle_objective(O1_coord, C2_coord, tail_coord, angles[1])
+    angle_err_C3_C2_R = angle_objective(C3_coord, C2_coord, tail_coord, angles[2])
+    
+    #dist_err = get_dist()
+
+    total_angle_err = angle_err_C1_C2_R + angle_err_O1_C2_R + angle_err_C3_C2_R
+    # Combine errors with weighting factors
+    return  total_angle_err 
+
+def optimize_angles(initial_guess,C1_coords,C2_coords,O1_coords,C3_coords,angles):
+    # Flatten initial guess as midpoint of each set of centers
+    # Set up optimization
+    tolerance = 1e-6
+    max_dist = 1.382
+    bounds = [(C2_coords[0]-max_dist,C2_coords[0]+max_dist),(C2_coords[1]-max_dist,C2_coords[1]+max_dist),(C2_coords[2]-max_dist,C2_coords[2]+max_dist)]
+    result = minimize(
+        combined_angle_objective,
+        initial_guess,
+        args=(C1_coords,C2_coords,O1_coords,C3_coords,angles),
+        tol=tolerance,
+        bounds=bounds
+    )
+    
+    # Check for successful optimization
+    if result.success or result.fun < tolerance:
+        print('CONVERGED')
+    else:
+        print('NOT CONVERGED')
+    
+    return result.x
 
 def kabsch_algorithm(P, Q):
     # Ensure the points are numpy arrays
@@ -44,11 +141,7 @@ def kabsch_algorithm(P, Q):
 
     return R, t
 
-def get_ThDP_indexes(receptor):
-    # receptor is the MDAnalysis universe 
-
-    # read in receptor and isolate ThDP (TPP) residue
-    tpp_residue = receptor.select_atoms("resname TPP")
+def get_ThDP_indexes(tpp_residue):
     
     # get coordinates of Sulfur atom in ThDP
     S_index = list(tpp_residue.types).index('S')
