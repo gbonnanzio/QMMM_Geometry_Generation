@@ -2,6 +2,8 @@ import MDAnalysis as mda
 import numpy as np
 from collections import Counter
 from scipy.optimize import minimize
+from scipy.spatial.transform import Rotation as R
+
 
 vdw_radii = {'H':1.2,'C':1.7,'N':1.55,'O':1.52,'S':1.8,'F':1.47,'Br':1.85,'Mg':1.7}
 bond_dists ={'C-C':1.53,'C=O':1.23,'C-O':1.35,'C=N':1.35,'C-S':1.71,'S--N':2.45,'N-H':1.05,'C-N':1.382}
@@ -193,14 +195,13 @@ def get_ThDP_indexes(tpp_residue):
     ThDP_important_indexes = {'C1':Carbanion_index,'N1':N_ring_index,'S1':S_index,'N2':primary_N_index}
     return ThDP_important_indexes
 
-def get_substrate_aka_indexes(substrate):
+def get_substrate_aka_indexes(substrate_atoms):
     # substrate is the substrate mdanalysis universe 
 
     # Identify the atoms of the alpha-keto acid head for the substrates
     # {'Carbonyl_Carbon':index...}
 
     # get all C's in list 
-    substrate_atoms = substrate.select_atoms('all')
     substrate_atom_types = list(substrate_atoms.types)
     substrate_C_indexes = [i for i, x in enumerate(substrate_atom_types) if x == 'C']
     substrate_O_indexes = [i for i, x in enumerate(substrate_atom_types) if x == 'O']
@@ -279,10 +280,6 @@ def get_substrate_aka_indexes(substrate):
     
     return substrate_important_indexes
 
-import MDAnalysis as mda
-import numpy as np
-from scipy.spatial.transform import Rotation as R
-
 def rotate_atoms(universe, atom1_idx, atom2_idx, atom_list, angle_deg):
     """
     Rotates atoms in `atom_list` around the axis defined by `atom1_idx` and `atom2_idx` by `angle_deg`.
@@ -310,9 +307,11 @@ def rotate_atoms(universe, atom1_idx, atom2_idx, atom_list, angle_deg):
     # Create the rotation object
     rotation = R.from_rotvec(angle_rad * axis)
 
+    rotated_universe = universe.copy()
+
     # Rotate each atom in the atom_list
     for atom_idx in atom_list:
-        atom = universe.atoms[atom_idx]
+        atom = rotated_universe.atoms[atom_idx]
         # Translate the atom to the origin (relative to atom1)
         atom_position = atom.position - coord1
         # Apply rotation
@@ -320,4 +319,28 @@ def rotate_atoms(universe, atom1_idx, atom2_idx, atom_list, angle_deg):
         # Translate back to original frame
         atom.position = rotated_position + coord1
 
+    return rotated_universe
 
+
+
+def optimize_tail_position(initial_guess,C1_coords,C2_coords,O1_coords,C3_coords,angles):
+    # Flatten initial guess as midpoint of each set of centers
+    # Set up optimization
+    tolerance = 1e-6
+    max_dist = 1.382
+    bounds = [(C2_coords[0]-max_dist,C2_coords[0]+max_dist),(C2_coords[1]-max_dist,C2_coords[1]+max_dist),(C2_coords[2]-max_dist,C2_coords[2]+max_dist)]
+    result = minimize(
+        combined_angle_objective,
+        initial_guess,
+        args=(C1_coords,C2_coords,O1_coords,C3_coords,angles),
+        tol=tolerance,
+        bounds=bounds
+    )
+    
+    # Check for successful optimization
+    if result.success or result.fun < tolerance:
+        print('CONVERGED')
+    else:
+        print('NOT CONVERGED')
+    
+    return result.x

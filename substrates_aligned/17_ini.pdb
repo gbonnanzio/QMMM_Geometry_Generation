@@ -67,4 +67,65 @@ HETATM   58  H11 INI X   1     -28.965 -30.128  22.132  1.00  1.00      SYST H
 HETATM   59  H12 INI X   1     -32.255 -35.014  26.432  1.00  1.00      SYST H  
 HETATM   60  H13 INI X   1     -33.213 -33.800  27.308  1.00  1.00      SYST H  
 HETATM   61  H14 INI X   1     -32.191 -33.307  25.954  1.00  1.00      SYST H  
+CONECT    1   17   18   19
+CONECT    2    3    5   18
+CONECT    3    2    4    6
+CONECT    4    3    7   14
+CONECT    5    2   14   15
+CONECT    6    3    8    9
+CONECT    7    4   10   11
+CONECT    8    6   10   12
+CONECT    9    6
+CONECT   10    7    8   13
+CONECT   11    7
+CONECT   12    8
+CONECT   13   10
+CONECT   14    4    5   16
+CONECT   15    5
+CONECT   16   14
+CONECT   17    1
+CONECT   18    1    2   20
+CONECT   19    1
+CONECT   20   18
+CONECT   21   22   25
+CONECT   22   21   23
+CONECT   23   22   24   44
+CONECT   24   23   25   46
+CONECT   25   21   24   26
+CONECT   26   25   27   47   48
+CONECT   27   26   28   49   50
+CONECT   28   27   29
+CONECT   29   28   32   35   38
+CONECT   30   33   36   38   39
+CONECT   31   34   43
+CONECT   32   29
+CONECT   33   30
+CONECT   34   31   37   45
+CONECT   35   29
+CONECT   36   30
+CONECT   37   34   40
+CONECT   38   29   30
+CONECT   39   30
+CONECT   40   37   41   42
+CONECT   41   40   51   52
+CONECT   42   40   43   44
+CONECT   43   31   42   53
+CONECT   44   23   42   54   55
+CONECT   45   34   56   57   58
+CONECT   46   24   59   60   61
+CONECT   47   26
+CONECT   48   26
+CONECT   49   27
+CONECT   50   27
+CONECT   51   41
+CONECT   52   41
+CONECT   53   43
+CONECT   54   44
+CONECT   55   44
+CONECT   56   45
+CONECT   57   45
+CONECT   58   45
+CONECT   59   46
+CONECT   60   46
+CONECT   61   46
 END

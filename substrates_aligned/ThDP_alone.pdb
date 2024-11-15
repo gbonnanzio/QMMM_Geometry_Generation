@@ -48,4 +48,45 @@ HETATM   38  H11 TPP X1115     -28.965 -30.128  22.132  1.00  1.00      SYST H
 HETATM   39  H12 TPP X1115     -32.255 -35.014  26.432  1.00  1.00      SYST H  
 HETATM   40  H13 TPP X1115     -33.213 -33.800  27.308  1.00  1.00      SYST H  
 HETATM   41  H14 TPP X1115     -32.191 -33.307  25.954  1.00  1.00      SYST H  
+CONECT    1    2    5
+CONECT    2    1    3
+CONECT    3    2    4   24
+CONECT    4    3    5   26
+CONECT    5    1    4    6
+CONECT    6    5    7   27   28
+CONECT    7    6    8   29   30
+CONECT    8    7    9
+CONECT    9    8   12   15   18
+CONECT   10   13   16   18   19
+CONECT   11   14   23
+CONECT   12    9
+CONECT   13   10
+CONECT   14   11   17   25
+CONECT   15    9
+CONECT   16   10
+CONECT   17   14   20
+CONECT   18    9   10
+CONECT   19   10
+CONECT   20   17   21   22
+CONECT   21   20   31   32
+CONECT   22   20   23   24
+CONECT   23   11   22   33
+CONECT   24    3   22   34   35
+CONECT   25   14   36   37   38
+CONECT   26    4   39   40   41
+CONECT   27    6
+CONECT   28    6
+CONECT   29    7
+CONECT   30    7
+CONECT   31   21
+CONECT   32   21
+CONECT   33   23
+CONECT   34   24
+CONECT   35   24
+CONECT   36   25
+CONECT   37   25
+CONECT   38   25
+CONECT   39   26
+CONECT   40   26
+CONECT   41   26
 END

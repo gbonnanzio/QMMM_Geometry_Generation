@@ -1,0 +1,12 @@
+! QMMM HF-3C opt
+% PAL NPROCS 32 END 
+% Maxcore 4500 
+% QMMM 
+    QMAtoms {} end 
+    ActiveAtoms {} end 
+    OptRegion_FixedAtoms {} end
+    ORCAFFFilename "qm_complex.ORCAFF.prms" 
+END
+% Geom
+    Maxiter 1000 
+END
