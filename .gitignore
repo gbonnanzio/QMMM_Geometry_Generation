@@ -1,2 +1,10 @@
 *.pdb
 *.xyz
+*.prmtop
+*.inpcrd
+*.prms
+*.txt
+*sslink
+*.frcmod
+*.mol2
+*.log
