@@ -14,7 +14,7 @@ def get_atom_clashes(universe,atom_indices,threshold):
     nearby_atoms = universe.select_atoms(f"protein and (around " + str(threshold) + f" index {' '.join(map(str, atom_indices))})")
     return len(nearby_atoms)
 
-def get_atom_position(mol_universe,index):
+def get_atom_position(mol_universe:mda.core.universe.Universe,index:int):
     position = mol_universe.atoms[index].position
     return position
 
@@ -273,20 +273,23 @@ def get_ThDP_indexes(tpp_residue:mda.core.universe.Universe):
     ThDP_important_indexes = {'C1':C1_index,'N1':N1_index,'S1':S1_index,'N2':N2_index}
     return ThDP_important_indexes
 
-def get_substrate_aka_indexes(substrate_atoms):
-    # substrate is the substrate mdanalysis universe 
-
-    # Identify the atoms of the alpha-keto acid head for the substrates
-    # {'Carbonyl_Carbon':index...}
-
+def get_substrate_aka_indexes(substrate_atoms:mda.core.universe.Universe):
+    '''
+    OBJECTIVE: 
+        Get the important indexes (alpha-keto acid atoms) of the substrate molecule 
+        C2 = Carbonyl carbon
+        C3 = Carboxylic acid carbon
+        O1 = Carbonyl oxygen
+        O2/O3 = Oxygens of carboxylic acid 
+    '''
     # get all C's in list 
     substrate_atom_types = list(substrate_atoms.types)
     substrate_C_indexes = [i for i, x in enumerate(substrate_atom_types) if x == 'C']
     substrate_O_indexes = [i for i, x in enumerate(substrate_atom_types) if x == 'O']
 
-    # carbonyl group
-    potential_carbonyl_pairs = {} # {carbon index:[oxygen indexes]}
-    potential_carboxylic_acid_pairs = {}
+    # identify carbon oxygen pairs 
+    potential_C2_O1_pairs = {} # {carbon index:[oxygen indexes]}
+    potential_C3_O2_O3_pairs = {} # {carbon index:[oxygen indexes]}
     for i in substrate_C_indexes:
         curr_C_coords = substrate_atoms.positions[i]
         for j in substrate_O_indexes:
@@ -303,58 +306,66 @@ def get_substrate_aka_indexes(substrate_atoms):
                         C_s_O_err = abs(curr_dist - bond_dists['C-O']) # single bond
 
                         if C_s_O_err < threshold: # this is a carboxylic acid not a carbonyl
-                            potential_carboxylic_acid_pairs[i] = [j,k]
+                            potential_C3_O2_O3_pairs[i] = [j,k]
                             true_carbonyl = False
-
+                # if we found a carbonyl carbon
                 if true_carbonyl:
-                    if i not in potential_carbonyl_pairs:
-                        potential_carbonyl_pairs[i] = [j]
-                    else:
-                        potential_carbonyl_pairs[i].append(j)
+                    potential_C2_O1_pairs[i] = [j]
     
-    potential_carbonyl_carbons = []
-    for curr_C_index in potential_carbonyl_pairs:
-        potential_oxygens = potential_carbonyl_pairs[curr_C_index]
+    potential_C2_carbons = []
+    for curr_C_index in potential_C2_O1_pairs:
+        potential_oxygens = potential_C2_O1_pairs[curr_C_index]
         if len(potential_oxygens ) == 1:
-            potential_carbonyl_carbons.append(curr_C_index)
+            potential_C2_carbons.append(curr_C_index)
 
-    if len(potential_carbonyl_carbons) > 1:
-        print('UH OH! More than one carbonyl carbon found')
+    if len(potential_C2_carbons) > 1:
+        print('UH OH! More than one carbonyl carbon was found')
+        return None
     else:
-        carbonyl_carbon_index = potential_carbonyl_carbons[0]
-        carbonyl_oxygen_index = potential_carbonyl_pairs[carbonyl_carbon_index][0]
+        C2_index = potential_C2_carbons[0]
+        O1_index = potential_C2_O1_pairs[C2_index][0]
 
-    for i in list(potential_carboxylic_acid_pairs.keys()):
-        curr_dist = get_dist(substrate_atoms.positions[carbonyl_carbon_index],substrate_atoms.positions[i])
+    C2_coords = substrate_atoms.positions[C2_index]
+    found_C3 = False
+    # Find the carboxylic acid carbons 
+    for i in list(potential_C3_O2_O3_pairs.keys()):
+        curr_dist = get_dist(C2_coords,substrate_atoms.positions[i]) # C2 and C3 should be 1.53 A apart
         C_C_err = abs(curr_dist - bond_dists['C-C'])
         if C_C_err < threshold: 
-            carboxylic_acid_carbon_index = i      
+            if found_C3 == True:
+                print('UH OH! More than one carboxylic acid carbon was found')
+                return None
+            else:
+                C3_index = i    
+                O2_index = potential_C3_O2_O3_pairs[C3_index][0]  
+                O3_index = potential_C3_O2_O3_pairs[C3_index][1]  
+                found_C3 = True
 
-    substrate_important_indexes = {'C2':carbonyl_carbon_index,
-                                   'O1':carbonyl_oxygen_index,
-                                   'C3':carboxylic_acid_carbon_index,
-                                   'O2':potential_carboxylic_acid_pairs[carboxylic_acid_carbon_index][0],
-                                   'O3':potential_carboxylic_acid_pairs[carboxylic_acid_carbon_index][1]}
+    substrate_important_indexes = {'C2':C2_index,
+                                   'O1':O1_index,
+                                   'C3':C3_index,
+                                   'O2':O2_index,
+                                   'O3':O3_index}
 
-
+    # now find the first atom of the R group of the alpha keto acid 
     for i in range(0,len(substrate_atoms)):
         if i not in substrate_important_indexes.values():
             curr_atom_type = substrate_atoms.types[i]
             curr_atom_coords = substrate_atoms.positions[i]
-
+            # given the original 20 substrates this connecting atom could either be a carbon or a nitrogen 
             if curr_atom_type == 'N':
                 set_dist = bond_dists['C-N']
             elif curr_atom_type == 'C':
                 set_dist = bond_dists['C-C']
-            else:
+            else: # if it is neither N or C it is not the connecting atom, skip it 
                 continue
 
-            curr_dist = get_dist(curr_atom_coords,substrate_atoms.positions[carbonyl_carbon_index])
+            curr_dist = get_dist(curr_atom_coords,substrate_atoms.positions[C2_index])
             dist_err = abs(curr_dist - set_dist) 
             if dist_err < threshold: 
-                first_tail_atom_index = i 
+                R_index = i 
     
-    substrate_important_indexes['R'] = first_tail_atom_index
+    substrate_important_indexes['R'] = R_index
     
     return substrate_important_indexes
 
