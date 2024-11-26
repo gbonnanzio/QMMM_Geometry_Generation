@@ -4,7 +4,7 @@
 % QMMM 
     QMAtoms {} end 
     ActiveAtoms {} end 
-    OptRegion_FixedAtoms {} end
+    ExtendActiveRegion cov_bonds
     ORCAFFFilename "qm_complex.ORCAFF.prms" 
 END
 % Geom

@@ -1,0 +1,33 @@
+source leaprc.protein.ff19SB
+source leaprc.gaff2
+source leaprc.water.tip3p
+loadamberparams	frcmod.ionsjc_tip3p
+loadamberparams frcmod.ions234lm_1264_tip3p
+
+loadamberparams TPP.frcmod
+TPP = loadMol2 TPP.mol2
+saveamberparm TPP TPP.prmtop TPP.inpcrd
+
+receptor = loadPDB protein_amber.pdb
+saveamberparm receptor receptor.prmtop receptor.inpcrd
+
+dry_complex = combine {receptor TPP}
+
+saveamberparm dry_complex dry_complex.prmtop dry_complex.inpcrd
+savepdb dry_complex dry_complex.pdb
+
+water = loadPDB water_amber.pdb
+qm_complex = combine {dry_complex water}
+
+saveamberparm qm_complex qm_complex.prmtop qm_complex.inpcrd
+savepdb qm_complex qm_complex.pdb
+
+solvatebox qm_complex TIP3PBOX 10.0 iso
+addIonsRand qm_complex  Na+ 0
+addIonsRand qm_complex  Cl- 0
+addIonsRand qm_complex Na+ 152 Cl- 152
+
+saveamberparm qm_complex solvated_complex.prmtop solvated_complex.inpcrd
+savepdb qm_complex solvated_complex.pdb
+
+quit

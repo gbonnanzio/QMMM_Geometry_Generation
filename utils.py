@@ -9,6 +9,11 @@ vdw_radii = {'H':1.2,'C':1.7,'N':1.55,'O':1.52,'S':1.8,'F':1.47,'Br':1.85,'Mg':1
 bond_dists ={'C-C':1.53,'C=O':1.23,'C-O':1.35,'C=N':1.35,'C-S':1.71,'S--N':2.45,'N-H':1.05,'C-N':1.382}
 threshold = 0.1
 
+def get_atom_clashes(universe,atom_indices,threshold):
+    # Create an AtomGroup for the specified atom indices
+    nearby_atoms = universe.select_atoms(f"protein and (around " + str(threshold) + f" index {' '.join(map(str, atom_indices))})")
+    return len(nearby_atoms)
+
 def get_atom_position(mol_universe,index):
     position = mol_universe.atoms[index].position
     return position
@@ -113,6 +118,42 @@ def optimize_angles(initial_guess,C1_coords,C2_coords,O1_coords,C3_coords,angles
     
     return result.x
 
+def write_universe(directory, filename, universe):
+    # Check if the directory exists
+    if not os.path.exists(directory):
+        print(f"Directory '{directory}' does not exist. Creating it...")
+        os.makedirs(directory)
+    else:
+        print(f"Directory '{directory}' already exists.")
+    
+    # Write the file
+    file_path = os.path.join(directory, filename)
+    universe.atoms.write(file_path)
+    print(f"File '{filename}' has been written in '{directory}'.")
+
+def edit_protein_files(directory,file_name):
+    file_path = directory + '/' + file_name
+    # edit the protein file to add the TER labels needed for Amber forcefield generation 
+    with open(file_path, 'r') as infile:
+        lines = infile.readlines()
+    with open(file_path, 'w') as outfile:
+        for line in lines:
+            outfile.write(line)
+            if " OXT " in line:  # Check if the line contains the atom name "OXT"
+                outfile.write("TER\n")
+
+    print('Edited ',file_path)
+
+def determine_index_shift(original_u,merged_u,original_indexes):
+    num_atom_diff = len(merged_u.atoms)-len(original_u.atoms)
+    # if original atoms were added first
+    if np.all(merged_u.atoms[0].position == original_u.atoms[0].position):
+        return 0
+    elif np.all(merged_u.atoms[num_atom_diff].position == original_u.atoms[0].position):
+        return num_atom_diff
+    else:
+        return None
+
 def kabsch_algorithm(P, Q):
     # Ensure the points are numpy arrays
     P = np.array(P)
@@ -161,10 +202,22 @@ def get_ThDP_indexes(tpp_residue):
     ThDP_N_indexes = [i for i, x in enumerate(list(tpp_residue.types)) if x == 'N']
 
     # find the nitrogen that is proximal to the carbanion
+    min_error = 1000
+    found_N = False
     for i in ThDP_N_indexes:
         curr_dist = get_dist(S_coords,tpp_residue.positions[i])
-        if (abs(curr_dist - bond_dists['S--N']) < threshold):
+        curr_error = abs(curr_dist - bond_dists['S--N'])
+        if curr_error < min_error:
+            min_error = curr_error
+            min_index = i
+        if curr_error < threshold:
+            found_N = True
             N_ring_index = i
+    
+    if found_N == False:
+        print('Taking best guess at ring N')
+        N_ring_index = min_index
+    
     N_ring_coords = tpp_residue.positions[N_ring_index]
 
     # find the primary amine 
@@ -183,14 +236,26 @@ def get_ThDP_indexes(tpp_residue):
         primary_N_index = primary_N_trimmed[0]
 
     # find the carbanion
+    min_error = 1000
+    found_C = False
     for i in potential_carbanion_indexes:
         S_dist = get_dist(S_coords,tpp_residue.positions[i])
         S_err = abs(S_dist - bond_dists['C-S'])
         N_dist = get_dist(N_ring_coords,tpp_residue.positions[i])
         N_err = abs(N_dist - bond_dists['C=N'])
+        
+        curr_error = S_err + N_err
+        if curr_error < min_error:
+            min_error = curr_error
+            min_index = i
 
         if ((S_err < threshold) and (N_err < threshold)):
+            found_C = True
             Carbanion_index = i
+
+    if found_C == False:
+        print('Taking best guess at carbanion')
+        Carbanion_index = min_index
     
     ThDP_important_indexes = {'C1':Carbanion_index,'N1':N_ring_index,'S1':S_index,'N2':primary_N_index}
     return ThDP_important_indexes
@@ -303,7 +368,7 @@ def rotate_atoms(universe, atom1_idx, atom2_idx, atom_list, angle_deg):
 
     # Define rotation angle in radians
     angle_rad = np.deg2rad(angle_deg)
-
+    
     # Create the rotation object
     rotation = R.from_rotvec(angle_rad * axis)
 
