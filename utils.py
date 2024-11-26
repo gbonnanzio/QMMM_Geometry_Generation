@@ -3,7 +3,7 @@ import numpy as np
 from collections import Counter
 from scipy.optimize import minimize
 from scipy.spatial.transform import Rotation as R
-
+import os
 
 vdw_radii = {'H':1.2,'C':1.7,'N':1.55,'O':1.52,'S':1.8,'F':1.47,'Br':1.85,'Mg':1.7}
 bond_dists ={'C-C':1.53,'C=O':1.23,'C-O':1.35,'C=N':1.35,'C-S':1.71,'S--N':2.45,'N-H':1.05,'C-N':1.382}
@@ -118,13 +118,16 @@ def optimize_angles(initial_guess,C1_coords,C2_coords,O1_coords,C3_coords,angles
     
     return result.x
 
-def write_universe(directory, filename, universe):
+def write_universe(directory:str, filename:str, universe:mda.core.universe.Universe):
+    '''
+    OBJECTIVE: 
+    Write an MDanalysis atom universe to directory+filename. If none exist,
+    create that directory  
+    '''
     # Check if the directory exists
     if not os.path.exists(directory):
         print(f"Directory '{directory}' does not exist. Creating it...")
         os.makedirs(directory)
-    else:
-        print(f"Directory '{directory}' already exists.")
     
     # Write the file
     file_path = os.path.join(directory, filename)
@@ -132,7 +135,12 @@ def write_universe(directory, filename, universe):
     print(f"File '{filename}' has been written in '{directory}'.")
 
 def edit_protein_files(directory,file_name):
-    file_path = directory + '/' + file_name
+    '''
+    OBJECTIVE:
+    Edit the protein file to search for protein subunits (ending in OXT)
+    to add "TER" needed for this pdb file to be amber readable
+    '''
+    file_path = directory + file_name
     # edit the protein file to add the TER labels needed for Amber forcefield generation 
     with open(file_path, 'r') as infile:
         lines = infile.readlines()
@@ -141,8 +149,7 @@ def edit_protein_files(directory,file_name):
             outfile.write(line)
             if " OXT " in line:  # Check if the line contains the atom name "OXT"
                 outfile.write("TER\n")
-
-    print('Edited ',file_path)
+    print('Edited ',file_path,' for Amber')
 
 def determine_index_shift(original_u,merged_u,original_indexes):
     num_atom_diff = len(merged_u.atoms)-len(original_u.atoms)
@@ -184,64 +191,70 @@ def kabsch_algorithm(P, Q):
 
     return R, t
 
-def get_ThDP_indexes(tpp_residue):
-    
-    # get coordinates of Sulfur atom in ThDP
-    S_index = list(tpp_residue.types).index('S')
-    S_coords = tpp_residue.positions[S_index]
+def get_ThDP_indexes(tpp_residue:mda.core.universe.Universe):
+    '''
+    OBJECTIVE:
+    Get the important atom indexes of ThDP
+        C1 = Carbanion
+        S1 = Sulfur
+        N1 = Ring Nitrogen
+        N2 = Amino group 
+    '''
+    # Get coordinates of S1 (only sulfur in ThDP)
+    S1_index = list(tpp_residue.types).index('S')
+    S1_coords = tpp_residue.positions[S1_index]
 
-    # Identify the carbanion of ThDP
+    # Identify the carbanion of ThDP by distance away from S and N
     # iterate through carbon atoms
     ThDP_C_indexes = [i for i, x in enumerate(list(tpp_residue.types)) if x == 'C']
-    potential_carbanion_indexes = []
+    potential_C1_indexes = []
     for i in ThDP_C_indexes:
-        curr_dist = get_dist(S_coords,tpp_residue.positions[i])
+        curr_dist = get_dist(S1_coords,tpp_residue.positions[i])
         if (abs(curr_dist - bond_dists['C-S']) < threshold):
-            potential_carbanion_indexes.append(i)
+            potential_C1_indexes.append(i)
 
+    # find N1 by distance away from S
     ThDP_N_indexes = [i for i, x in enumerate(list(tpp_residue.types)) if x == 'N']
-
-    # find the nitrogen that is proximal to the carbanion
     min_error = 1000
-    found_N = False
+    found_N1 = False
     for i in ThDP_N_indexes:
-        curr_dist = get_dist(S_coords,tpp_residue.positions[i])
+        curr_dist = get_dist(S1_coords,tpp_residue.positions[i])
         curr_error = abs(curr_dist - bond_dists['S--N'])
         if curr_error < min_error:
             min_error = curr_error
             min_index = i
         if curr_error < threshold:
-            found_N = True
-            N_ring_index = i
+            found_N1 = True
+            N1_index = i
     
-    if found_N == False:
+    if found_N1 == False:
         print('Taking best guess at ring N')
-        N_ring_index = min_index
+        N1_index = min_index
     
-    N_ring_coords = tpp_residue.positions[N_ring_index]
+    N1_coords = tpp_residue.positions[N1_index]
 
-    # find the primary amine 
+    # find N2, should be only N with two hydrogens on it  
     ThDP_H_indexes = [i for i, x in enumerate(list(tpp_residue.types)) if x == 'H']
-    potential_primary_N_indexes = []
+    potential_N2_indexes = []
     for i in ThDP_N_indexes:
         for j in ThDP_H_indexes:
             curr_dist = get_dist(tpp_residue.positions[i],tpp_residue.positions[j])
             if (abs(curr_dist - bond_dists['N-H']) < threshold):
-                potential_primary_N_indexes.append(i)
+                potential_N2_indexes.append(i)
 
-    primary_N_trimmed = list(set(potential_primary_N_indexes))
-    if len(primary_N_trimmed) > 1:
+    N2_trimmed = list(set(potential_N2_indexes))
+    if len(N2_trimmed) > 1:
         print("UH OH! Multiple amino groups found")
     else:
-        primary_N_index = primary_N_trimmed[0]
+        N2_index = N2_trimmed[0]
 
-    # find the carbanion
+    # We have now found, S1, N1, and N2... use S1 and N1 to find C1
     min_error = 1000
-    found_C = False
-    for i in potential_carbanion_indexes:
-        S_dist = get_dist(S_coords,tpp_residue.positions[i])
+    found_C1 = False
+    for i in potential_C1_indexes:
+        S_dist = get_dist(S1_coords,tpp_residue.positions[i])
         S_err = abs(S_dist - bond_dists['C-S'])
-        N_dist = get_dist(N_ring_coords,tpp_residue.positions[i])
+        N_dist = get_dist(N1_coords,tpp_residue.positions[i])
         N_err = abs(N_dist - bond_dists['C=N'])
         
         curr_error = S_err + N_err
@@ -250,14 +263,14 @@ def get_ThDP_indexes(tpp_residue):
             min_index = i
 
         if ((S_err < threshold) and (N_err < threshold)):
-            found_C = True
-            Carbanion_index = i
+            found_C1 = True
+            C1_index = i
 
-    if found_C == False:
+    if found_C1 == False:
         print('Taking best guess at carbanion')
-        Carbanion_index = min_index
+        C1_index = min_index
     
-    ThDP_important_indexes = {'C1':Carbanion_index,'N1':N_ring_index,'S1':S_index,'N2':primary_N_index}
+    ThDP_important_indexes = {'C1':C1_index,'N1':N1_index,'S1':S1_index,'N2':N2_index}
     return ThDP_important_indexes
 
 def get_substrate_aka_indexes(substrate_atoms):
