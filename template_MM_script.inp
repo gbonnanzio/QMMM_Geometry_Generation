@@ -1,0 +1,14 @@
+! MM L-Opt
+% PAL NPROCS 8 END
+% Maxcore 750 
+% MM 
+    ORCAFFFilename "qm_complex.ORCAFF.prms" 
+END
+*pdbfile
+% Geom
+    Frags
+        2 {483:500 1185:1198 1604:1627 1763:1779 14711:14721 14773:14796 15092:15102 15110:15128 15928:15966 15997:16015 17267:17322 17503:17505} 
+    End  
+    RelaxFrags {2} end
+    FixFrags {1} end
+END

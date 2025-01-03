@@ -11,23 +11,23 @@ saveamberparm TPP TPP.prmtop TPP.inpcrd
 receptor = loadPDB protein_amber.pdb
 saveamberparm receptor receptor.prmtop receptor.inpcrd
 
-dry_complex = combine {receptor TPP}
+complex_dry = combine {receptor TPP}
 
-saveamberparm dry_complex dry_complex.prmtop dry_complex.inpcrd
-savepdb dry_complex dry_complex.pdb
+saveamberparm complex_dry complex_dry.prmtop complex_dry.inpcrd
+savepdb complex_dry complex_dry.pdb
 
 water = loadPDB water_amber.pdb
-qm_complex = combine {dry_complex water}
+qm_receptor = combine {complex_dry water}
 
-saveamberparm qm_complex qm_complex.prmtop qm_complex.inpcrd
-savepdb qm_complex qm_complex.pdb
+saveamberparm qm_receptor qm_receptor.prmtop qm_receptor.inpcrd
+savepdb qm_receptor qm_receptor.pdb
 
-solvatebox qm_complex TIP3PBOX 10.0 iso
-addIonsRand qm_complex  Na+ 0
-addIonsRand qm_complex  Cl- 0
-addIonsRand qm_complex Na+ 152 Cl- 152
+solvatebox qm_receptor TIP3PBOX 10.0 iso
+addIonsRand qm_receptor  Na+ 0
+addIonsRand qm_receptor  Cl- 0
+addIonsRand qm_receptor Na+ 152 Cl- 152
 
-saveamberparm qm_complex solvated_complex.prmtop solvated_complex.inpcrd
-savepdb qm_complex solvated_complex.pdb
+saveamberparm qm_receptor complex_solvated.prmtop complex_solvated.inpcrd
+savepdb qm_receptor complex_solvated.pdb
 
 quit

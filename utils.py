@@ -5,8 +5,7 @@ from scipy.optimize import minimize
 from scipy.spatial.transform import Rotation as R
 import os
 
-vdw_radii = {'H':1.2,'C':1.7,'N':1.55,'O':1.52,'S':1.8,'F':1.47,'Br':1.85,'Mg':1.7}
-bond_dists ={'C-C':1.53,'C=O':1.23,'C-O':1.35,'C=N':1.35,'C-S':1.71,'S--N':2.45,'N-H':1.05,'C-N':1.382}
+bond_dists ={'C-C':1.53,'long C-C':1.64,'CO2 C-O':1.27,'C=O':1.23,'C-O':1.35,'C=N':1.35,'C-S':1.71,'S--N':2.45,'N-H':1.05,'C-N':1.382,'O-H':1.05}
 threshold = 0.1
 
 def get_atom_clashes(universe,atom_indices,threshold):
@@ -49,20 +48,33 @@ def atom_objective(point, centers, radii):
 
 def combined_objective(all_points, centers, radii):
     # Split all_points into the three key points
-    C2, C3, O1 = np.split(all_points, len(all_points)/3)
+    C2_coords, C3_coords, O1_coords = np.split(all_points, len(all_points)/len(radii))
     
     # Calculate atom-level errors for each point to fit them to sphere constraints
-    atom_err_C2 = atom_objective(C2, centers, radii[0])
-    atom_err_C3 = atom_objective(C3, centers, radii[1])
-    atom_err_O1 = atom_objective(O1, centers, radii[2])
+    atom_err_C2 = atom_objective(C2_coords, centers, radii[0])
+    atom_err_C3 = atom_objective(C3_coords, centers, radii[1])
+    atom_err_O1 = atom_objective(O1_coords, centers, radii[2])
     
     total_atom_err = atom_err_C2 + atom_err_C3 + atom_err_O1
     
-    # Combine errors with weighting factors
     return  total_atom_err 
 
-def optimize_points(centers, initial_guess, radii):
-    # Flatten initial guess as midpoint of each set of centers
+def optimize_coordinates(initial_guess:np.ndarray, centers:np.ndarray, radii:list):
+    '''
+    OBJECTIVE:
+        Find the coordinates of three points in space given the centers of four spheres
+        centered around reference atoms: C1, N1, N2, S1. 
+        The radii were picked such that the intersection of these spheres will be the 
+        coordinates of each atom C2, C3, O1
+        initial_guess = [C2_x, C2_y, C2_z, C3_x, C3_y...] (needs to be 1D for optimizer)
+        centers = [[C1_x,C1_y,C1_z], 
+                   [N1_x,N1_y,N1_z],
+                   [N2_x,N2_y,N2_z],
+                   [S1_x,S1_y,S1_z]]
+        radii = [[r_C2_C1, r_C2_N1, r_C2_N2, r_C2_S1],
+                 [r_C3_C1, r_C3_N1, r_C3_N2, r_C3_S1]]
+                 [r_O1_C1, r_O1_N1, r_O1_N2, r_O1_S1]]
+    '''
     # Set up optimization
     tolerance = 1e-6
     result = minimize(
@@ -71,13 +83,76 @@ def optimize_points(centers, initial_guess, radii):
         args=(centers, radii),
         tol=tolerance
     )
-    C2, C3, O1 = np.split(result.x, 3)
+    C2_coords, C3_coords, O1_coords = np.split(result.x, 3)
     # Check for successful optimization
     if result.success or result.fun < tolerance:
         print('CONVERGED')
     else:
         print('NOT CONVERGED')
-    return C2, C3, O1
+    return C2_coords, C3_coords, O1_coords
+
+def calculate_average_plane(points):
+    """
+    Calculate the average plane through a group of points.
+    Parameters:
+        points (numpy.ndarray): A (N, 3) array where each row represents a 3D point.
+    Returns:
+        plane_normal (numpy.ndarray): The normal vector of the plane.
+        plane_point (numpy.ndarray): A point on the plane (centroid of the points).
+    """
+    if points.shape[1] != 3:
+        raise ValueError("Input points array must have shape (N, 3).")
+    # Calculate the centroid of the points
+    centroid = np.mean(points, axis=0)
+    # Subtract the centroid to center the points
+    centered_points = points - centroid
+    # Perform SVD on the centered points
+    _, _, vh = np.linalg.svd(centered_points)
+    # The normal vector of the plane is the last column of vh
+    plane_normal = vh[-1]
+
+    return plane_normal, centroid
+
+def diff_btwn_planes(normal_1,normal_2):
+    # Normalize the normals
+    n1 = normal_1 / np.linalg.norm(normal_1)
+    n2 = normal_2 / np.linalg.norm(normal_2)
+    
+    # Calculate angle between normals
+    dot_product = np.dot(n1, n2)
+    angle = np.degrees(np.arccos(np.clip(dot_product, -1.0, 1.0)))  # Clip for numerical stability
+    
+    return angle
+
+def rotation_objective(angle,md_universe,fixed_index_1,fixed_index_2,rotating_atom_indexes,reference_plane_normal):
+    rotated_donor = rotate_atoms(md_universe, fixed_index_1,fixed_index_2,rotating_atom_indexes,angle)
+    atom_positions = []
+    for i in range(0,len(rotated_donor.atoms)):
+        if rotated_donor.atoms[i].type != 'H':
+            atom_positions.append(rotated_donor.atoms[i].position)
+    
+    plane_normal, plane_centroid = calculate_average_plane(np.array(atom_positions))
+    angle_between_planes = diff_btwn_planes(plane_normal,reference_plane_normal)
+    print(angle_between_planes)
+    return angle_between_planes
+
+def optimize_rotation(initial_angle:int,md_universe:mda.core.universe.Universe,fixed_index_1:int,fixed_index_2:int,rotating_atom_indexes:list,reference_plane_normal:np.ndarray):
+    # Set up optimization
+    tolerance = 1e-9
+    result = minimize(
+        rotation_objective,
+        initial_angle,
+        args=(md_universe.copy(),fixed_index_1,fixed_index_2,rotating_atom_indexes,reference_plane_normal),
+        tol=tolerance
+    )
+    # Check for successful optimization
+    if result.success or result.fun < tolerance:
+        print('CONVERGED')
+    else:
+        print('NOT CONVERGED')
+    return result.x
+
+
 
 
 def angle_objective(atom1,atom2,atom3,angle):
@@ -90,13 +165,15 @@ def combined_angle_objective(tail_coord, C1_coord, C2_coord, O1_coord, C3_coord,
     angle_err_O1_C2_R = angle_objective(O1_coord, C2_coord, tail_coord, angles[1])
     angle_err_C3_C2_R = angle_objective(C3_coord, C2_coord, tail_coord, angles[2])
     
-    #dist_err = get_dist()
-
     total_angle_err = angle_err_C1_C2_R + angle_err_O1_C2_R + angle_err_C3_C2_R
-    # Combine errors with weighting factors
     return  total_angle_err 
 
 def optimize_angles(initial_guess,C1_coords,C2_coords,O1_coords,C3_coords,angles):
+    '''
+    OBJECTIVE: 
+    Identify the coordinate of atom R (initial_guess) that lead to the angles
+    C1-C2-R, O1-C2-R, C3-C2-R given in angles
+    '''
     # Flatten initial guess as midpoint of each set of centers
     # Set up optimization
     tolerance = 1e-6
@@ -161,11 +238,12 @@ def determine_index_shift(original_u,merged_u,original_indexes):
     else:
         return None
 
-def kabsch_algorithm(P, Q):
-    # Ensure the points are numpy arrays
-    P = np.array(P)
-    Q = np.array(Q)
-
+def kabsch_algorithm(P:np.ndarray, Q:np.ndarray):
+    '''
+    OBJECTIVE:
+        Given two sets of multiple coordinates (at least three), find the 
+        rotational and translational matrix you would apply to P to get to Q
+    '''
     # Step 1: Compute the centroids of P and Q
     centroid_P = np.mean(P, axis=0)
     centroid_Q = np.mean(Q, axis=0)
@@ -281,6 +359,7 @@ def get_substrate_aka_indexes(substrate_atoms:mda.core.universe.Universe):
         C3 = Carboxylic acid carbon
         O1 = Carbonyl oxygen
         O2/O3 = Oxygens of carboxylic acid 
+        R = heavy atom bonded to C2
     '''
     # get all C's in list 
     substrate_atom_types = list(substrate_atoms.types)
@@ -410,9 +489,8 @@ def rotate_atoms(universe, atom1_idx, atom2_idx, atom_list, angle_deg):
 
     return rotated_universe
 
-
-
 def optimize_tail_position(initial_guess,C1_coords,C2_coords,O1_coords,C3_coords,angles):
+
     # Flatten initial guess as midpoint of each set of centers
     # Set up optimization
     tolerance = 1e-6
@@ -433,3 +511,168 @@ def optimize_tail_position(initial_guess,C1_coords,C2_coords,O1_coords,C3_coords
         print('NOT CONVERGED')
     
     return result.x
+
+def simplify_integer_list(int_list):
+    if not int_list:
+        return ""
+
+    # Sort the list to make sure the integers are in ascending order
+    sorted_list = sorted(int_list)
+    ranges = []
+    start = sorted_list[0]
+    end = start
+
+    for number in sorted_list[1:]:
+        if number == end + 1:
+            end = number
+        else:
+            if start == end:
+                ranges.append(f"{start}")
+            else:
+                ranges.append(f"{start}:{end}")
+            start = number
+            end = start
+
+    # Add the last range or number
+    if start == end:
+        ranges.append(f"{start}")
+    else:
+        ranges.append(f"{start}:{end}")
+
+    return ' '.join(ranges)
+
+def get_atoms_by_distance(mol_universe:mda.Universe,dist1:float,dist2:float,atom_id:int):
+    
+    # get atoms a certain distance away from the carbonyl carbon  
+    QM_shell= mol_universe.select_atoms("(around " + str(dist1) + " index " + str(atom_id) + ") or resname MG")
+    # get the residues those atoms belong to
+    QM_residues = set([atom.residue for atom in QM_shell])
+    # do the same for the active atoms (which should include the QM atoms) 
+    active_atoms = mol_universe.select_atoms("(around " + str(dist2) + " index " + str(atom_id) + ") or resname MG")
+    active_residues = set([atom.residue for atom in active_atoms])
+    
+    # get all the atoms that belong to the residues for each of these groups 
+    QM_atoms = mol_universe.select_atoms(" or ".join([f"resid {residue.resid}" for residue in QM_residues]))
+    QM_atoms_indexes = [curr_atom.index for curr_atom in QM_atoms]
+    active_atoms = mol_universe.select_atoms(" or ".join([f"resid {residue.resid}" for residue in active_residues]))
+    active_atoms_indexes = [curr_atom.index for curr_atom in active_atoms]
+    # find the fixed atoms 
+    fixed_atoms = mol_universe.select_atoms(f"around 2.5 index {' '.join(map(str, active_atoms_indexes))}")
+    fixed_atoms_indexes = [curr_atom.index for curr_atom in fixed_atoms]
+    
+    return QM_residues, active_residues, QM_atoms_indexes,active_atoms_indexes,fixed_atoms_indexes
+
+def get_atoms_by_reslist(mol_universe:mda.Universe,residue_list:list):
+
+    # get all the atoms that belong to the residues for each of these groups 
+    selected_atoms = mol_universe.select_atoms(" or ".join([f"resid {residue}" for residue in residue_list]))
+    selected_atoms_indexes = [curr_atom.index for curr_atom in selected_atoms]
+
+    return selected_atoms_indexes
+
+def find_adjacent_oxygens(atom_universe,carbon_index):
+    
+    carbon_coords = atom_universe.atoms[carbon_index].position
+
+    atom_types = list(atom_universe.types)
+    O_indexes = [i for i, x in enumerate(atom_types) if x == 'O']
+
+    adjacent_oxygens = []
+    for curr_O_index in O_indexes:
+        curr_O_coords = atom_universe.atoms[curr_O_index].position
+        curr_dist = get_dist(carbon_coords,curr_O_coords)
+        dist_err = abs(curr_dist-bond_dists['CO2 C-O'])
+        if dist_err < threshold:
+            adjacent_oxygens.append(curr_O_index)
+
+    return adjacent_oxygens
+
+def get_ini_indexes(ini_atoms):
+    print('STARTNG')
+    # ini_atoms is the universe of just the INI residue  
+
+    # Identify the important atom indexes of the ThDP cofactor
+    # {'Carbonyl_Carbon (C1)':index...}
+    ThDP_indexes =  get_ThDP_indexes(ini_atoms)
+    C1_index = ThDP_indexes['C1']
+    C1_coords = ini_atoms.atoms[ThDP_indexes['C1']].position
+
+    # get all C's in list 
+    ini_atom_types = list(ini_atoms.types)
+    ini_C_indexes = [i for i, x in enumerate(ini_atom_types) if x == 'C']
+
+    # search for C2, should be C-C distance away from C1 
+    potential_C2_indexes = []
+    for i in ini_C_indexes:
+        if i == C1_index:
+            continue
+        else:
+            curr_C_coords = ini_atoms.positions[i]
+            curr_dist = get_dist(C1_coords,curr_C_coords)
+            curr_err = abs(curr_dist-bond_dists['C-C'])
+            if curr_err < threshold:
+                potential_C2_indexes.append(i)
+
+    if len(potential_C2_indexes) != 1:
+        print('ERROR FINDING C2 ATOM')
+        return None
+    else:
+        C2_index = potential_C2_indexes[0]
+        C2_coords = ini_atoms.atoms[C2_index].position
+
+    # search for O1
+    ini_O_indexes = [i for i, x in enumerate(ini_atom_types) if x == 'O']
+    potential_O1_indexes = []
+    for i in ini_O_indexes:
+        curr_O_coords = ini_atoms.positions[i]
+        curr_dist = get_dist(C2_coords,curr_O_coords)
+        curr_err = abs(curr_dist-bond_dists['C-O'])
+        if curr_err < threshold:
+            potential_O1_indexes.append(i)
+    
+    if len(potential_O1_indexes) != 1:
+        print(potential_O1_indexes)
+        print('ERROR FINDING O1 ATOM')
+        return None
+    else:
+        O1_index = potential_O1_indexes[0]
+    
+    # search for C3
+    potential_C3_indexes = []
+    for i in ini_C_indexes:
+        if i == C1_index or i == C2_index:
+            continue
+        else:
+            curr_C_coords = ini_atoms.positions[i]
+            curr_dist = get_dist(C2_coords,curr_C_coords)
+            curr_err = abs(curr_dist-bond_dists['long C-C'])
+            if curr_err < threshold:
+                potential_C3_indexes.append(i)
+
+    if len(potential_C3_indexes) == 0:
+        print('ERROR FINDING C3 ATOM, NO ATOMS FOUND')
+        return None
+    elif len(potential_C3_indexes) == 1:
+        C3_index = potential_C3_indexes[0] 
+        CO2_oxygens = find_adjacent_oxygens(ini_atoms,C3_index)   
+    else:
+        refined_C3_indexes = []
+        refined_CO2_oxygens = []
+        for curr_C3_index in potential_C3_indexes:
+            curr_CO2_oxygens = find_adjacent_oxygens(ini_atoms,curr_C3_index) 
+            if len(curr_CO2_oxygens) != 2:
+                continue
+            else:
+                refined_C3_indexes.append(curr_C3_index)
+                refined_CO2_oxygens.append(curr_CO2_oxygens)
+
+        if len(refined_C3_indexes) != 1:
+            print('COULD NOT FIND C3')
+            return None
+        else:
+            C3_index = refined_C3_indexes[0]
+            CO2_oxygens = refined_CO2_oxygens[0]
+        
+    print("GOT HERE")
+    return C1_index, C2_index, C3_index, O1_index, CO2_oxygens[0], CO2_oxygens[1]
+    
