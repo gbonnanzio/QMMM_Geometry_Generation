@@ -10,7 +10,7 @@ threshold = 0.1
 
 def get_atom_clashes(universe,atom_indices,threshold):
     # Create an AtomGroup for the specified atom indices
-    nearby_atoms = universe.select_atoms(f"protein and (around " + str(threshold) + f" index {' '.join(map(str, atom_indices))})")
+    nearby_atoms = universe.select_atoms(f"(around " + str(threshold) + f" index {' '.join(map(str, atom_indices))})")
     return len(nearby_atoms)
 
 def get_atom_position(mol_universe:mda.core.universe.Universe,index:int):
