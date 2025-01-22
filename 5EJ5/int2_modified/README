@@ -1,0 +1,2 @@
+The template structure was an MD equilibrated int3 structure for 6,6. I then deleted the acceptor atoms 
+and reoptimized at the QM/MM level with XTB method (QM=6A,Active=10A).

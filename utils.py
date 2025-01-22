@@ -4,13 +4,14 @@ from collections import Counter
 from scipy.optimize import minimize
 from scipy.spatial.transform import Rotation as R
 import os
+import csv
 
-bond_dists ={'C-C':1.53,'long C-C':1.64,'CO2 C-O':1.27,'C=O':1.23,'C-O':1.35,'C=N':1.35,'C-S':1.71,'S--N':2.45,'N-H':1.05,'C-N':1.382,'O-H':1.05}
+bond_dists ={'C-C':1.53,'C=C':1.35,'long C-C':1.64,'CO2 C-O':1.27,'C=O':1.23,'C-O':1.35,'C=N':1.35,'C-S':1.71,'S--N':2.45,'N-H':1.05,'C-N':1.382,'O-H':1.05}
 threshold = 0.1
 
 def get_atom_clashes(universe,atom_indices,threshold):
     # Create an AtomGroup for the specified atom indices
-    nearby_atoms = universe.select_atoms(f"(around " + str(threshold) + f" index {' '.join(map(str, atom_indices))})")
+    nearby_atoms = universe.select_atoms(f"protein and (around " + str(threshold) + f" index {' '.join(map(str, atom_indices))})")
     return len(nearby_atoms)
 
 def get_atom_position(mol_universe:mda.core.universe.Universe,index:int):
@@ -90,70 +91,6 @@ def optimize_coordinates(initial_guess:np.ndarray, centers:np.ndarray, radii:lis
     else:
         print('NOT CONVERGED')
     return C2_coords, C3_coords, O1_coords
-
-def calculate_average_plane(points):
-    """
-    Calculate the average plane through a group of points.
-    Parameters:
-        points (numpy.ndarray): A (N, 3) array where each row represents a 3D point.
-    Returns:
-        plane_normal (numpy.ndarray): The normal vector of the plane.
-        plane_point (numpy.ndarray): A point on the plane (centroid of the points).
-    """
-    if points.shape[1] != 3:
-        raise ValueError("Input points array must have shape (N, 3).")
-    # Calculate the centroid of the points
-    centroid = np.mean(points, axis=0)
-    # Subtract the centroid to center the points
-    centered_points = points - centroid
-    # Perform SVD on the centered points
-    _, _, vh = np.linalg.svd(centered_points)
-    # The normal vector of the plane is the last column of vh
-    plane_normal = vh[-1]
-
-    return plane_normal, centroid
-
-def diff_btwn_planes(normal_1,normal_2):
-    # Normalize the normals
-    n1 = normal_1 / np.linalg.norm(normal_1)
-    n2 = normal_2 / np.linalg.norm(normal_2)
-    
-    # Calculate angle between normals
-    dot_product = np.dot(n1, n2)
-    angle = np.degrees(np.arccos(np.clip(dot_product, -1.0, 1.0)))  # Clip for numerical stability
-    
-    return angle
-
-def rotation_objective(angle,md_universe,fixed_index_1,fixed_index_2,rotating_atom_indexes,reference_plane_normal):
-    rotated_donor = rotate_atoms(md_universe, fixed_index_1,fixed_index_2,rotating_atom_indexes,angle)
-    atom_positions = []
-    for i in range(0,len(rotated_donor.atoms)):
-        if rotated_donor.atoms[i].type != 'H':
-            atom_positions.append(rotated_donor.atoms[i].position)
-    
-    plane_normal, plane_centroid = calculate_average_plane(np.array(atom_positions))
-    angle_between_planes = diff_btwn_planes(plane_normal,reference_plane_normal)
-    print(angle_between_planes)
-    return angle_between_planes
-
-def optimize_rotation(initial_angle:int,md_universe:mda.core.universe.Universe,fixed_index_1:int,fixed_index_2:int,rotating_atom_indexes:list,reference_plane_normal:np.ndarray):
-    # Set up optimization
-    tolerance = 1e-9
-    result = minimize(
-        rotation_objective,
-        initial_angle,
-        args=(md_universe.copy(),fixed_index_1,fixed_index_2,rotating_atom_indexes,reference_plane_normal),
-        tol=tolerance
-    )
-    # Check for successful optimization
-    if result.success or result.fun < tolerance:
-        print('CONVERGED')
-    else:
-        print('NOT CONVERGED')
-    return result.x
-
-
-
 
 def angle_objective(atom1,atom2,atom3,angle):
     angle_err = abs(get_angle(atom1,atom2,atom3) - angle)
@@ -283,13 +220,7 @@ def get_ThDP_indexes(tpp_residue:mda.core.universe.Universe):
     S1_coords = tpp_residue.positions[S1_index]
 
     # Identify the carbanion of ThDP by distance away from S and N
-    # iterate through carbon atoms
-    ThDP_C_indexes = [i for i, x in enumerate(list(tpp_residue.types)) if x == 'C']
-    potential_C1_indexes = []
-    for i in ThDP_C_indexes:
-        curr_dist = get_dist(S1_coords,tpp_residue.positions[i])
-        if (abs(curr_dist - bond_dists['C-S']) < threshold):
-            potential_C1_indexes.append(i)
+
 
     # find N1 by distance away from S
     ThDP_N_indexes = [i for i, x in enumerate(list(tpp_residue.types)) if x == 'N']
@@ -319,8 +250,11 @@ def get_ThDP_indexes(tpp_residue:mda.core.universe.Universe):
             curr_dist = get_dist(tpp_residue.positions[i],tpp_residue.positions[j])
             if (abs(curr_dist - bond_dists['N-H']) < threshold):
                 potential_N2_indexes.append(i)
-
-    N2_trimmed = list(set(potential_N2_indexes))
+    # Count occurrences
+    counter = Counter(potential_N2_indexes)
+    # Filter the list to keep only elements that occur exactly twice
+    N2_trimmed = list(set([item for item in potential_N2_indexes if counter[item] == 2]))
+    #N2_trimmed = list(set(potential_N2_indexes))
     if len(N2_trimmed) > 1:
         print("UH OH! Multiple amino groups found")
     else:
@@ -329,7 +263,9 @@ def get_ThDP_indexes(tpp_residue:mda.core.universe.Universe):
     # We have now found, S1, N1, and N2... use S1 and N1 to find C1
     min_error = 1000
     found_C1 = False
-    for i in potential_C1_indexes:
+    # iterate through carbon atoms
+    ThDP_C_indexes = [i for i, x in enumerate(list(tpp_residue.types)) if x == 'C']
+    for i in ThDP_C_indexes:
         S_dist = get_dist(S1_coords,tpp_residue.positions[i])
         S_err = abs(S_dist - bond_dists['C-S'])
         N_dist = get_dist(N1_coords,tpp_residue.positions[i])
@@ -359,7 +295,6 @@ def get_substrate_aka_indexes(substrate_atoms:mda.core.universe.Universe):
         C3 = Carboxylic acid carbon
         O1 = Carbonyl oxygen
         O2/O3 = Oxygens of carboxylic acid 
-        R = heavy atom bonded to C2
     '''
     # get all C's in list 
     substrate_atom_types = list(substrate_atoms.types)
@@ -550,7 +485,30 @@ def get_atoms_by_distance(mol_universe:mda.Universe,dist1:float,dist2:float,atom
     # do the same for the active atoms (which should include the QM atoms) 
     active_atoms = mol_universe.select_atoms("(around " + str(dist2) + " index " + str(atom_id) + ") or resname MG")
     active_residues = set([atom.residue for atom in active_atoms])
+    print(active_residues)
+
+    # get all the atoms that belong to the residues for each of these groups 
+    QM_atoms = mol_universe.select_atoms(" or ".join([f"resid {residue.resid}" for residue in QM_residues]))
+    QM_atoms_indexes = [curr_atom.index for curr_atom in QM_atoms]
+    active_atoms = mol_universe.select_atoms(" or ".join([f"resid {residue.resid}" for residue in active_residues]))
+    active_atoms_indexes = [curr_atom.index for curr_atom in active_atoms]
+    # find the fixed atoms 
+    fixed_atoms = mol_universe.select_atoms(f"around 2.5 index {' '.join(map(str, active_atoms_indexes))}")
+    fixed_atoms_indexes = [curr_atom.index for curr_atom in fixed_atoms]
     
+    return QM_residues, active_residues, QM_atoms_indexes,active_atoms_indexes,fixed_atoms_indexes
+
+def get_water_by_distance(mol_universe:mda.Universe,dist1:float,dist2:float,dist3:float,atom_id:int):
+    
+    # get atoms a certain distance away from the carbonyl carbon  
+    QM_shell= mol_universe.select_atoms("(around " + str(dist1) + " index " + str(atom_id) + ") or resname MG")
+    # get the residues those atoms belong to
+    QM_residues = set([atom.residue for atom in QM_shell])
+    # do the same for the active atoms (which should include the QM atoms) 
+    selection = "(around "+str(dist2)+" index "+str(atom_id)+") or (resname WAT and (around "+str(dist3)+" index "+str(atom_id)+")) or resname MG"
+    active_atoms = mol_universe.select_atoms(selection)
+    active_residues = set([atom.residue for atom in active_atoms])
+    print(active_residues)
     # get all the atoms that belong to the residues for each of these groups 
     QM_atoms = mol_universe.select_atoms(" or ".join([f"resid {residue.resid}" for residue in QM_residues]))
     QM_atoms_indexes = [curr_atom.index for curr_atom in QM_atoms]
@@ -588,7 +546,6 @@ def find_adjacent_oxygens(atom_universe,carbon_index):
     return adjacent_oxygens
 
 def get_ini_indexes(ini_atoms):
-    print('STARTNG')
     # ini_atoms is the universe of just the INI residue  
 
     # Identify the important atom indexes of the ThDP cofactor
@@ -673,6 +630,174 @@ def get_ini_indexes(ini_atoms):
             C3_index = refined_C3_indexes[0]
             CO2_oxygens = refined_CO2_oxygens[0]
         
-    print("GOT HERE")
-    return C1_index, C2_index, C3_index, O1_index, CO2_oxygens[0], CO2_oxygens[1]
+    INI_important_indexes = {'C1':C1_index,'C2':C2_index,'C3':C2_index,'O1':O1_index,'CO2_0':CO2_oxygens[0],'CO2_1':CO2_oxygens[1]}
+    return INI_important_indexes
+
+def get_ino_indexes(ini_atoms):
+    # ini_atoms is the universe of just the INI residue  
+
+    # Identify the important atom indexes of the ThDP cofactor
+    # {'Carbonyl_Carbon (C1)':index...}
+    ThDP_indexes =  get_ThDP_indexes(ini_atoms)
+    C1_index = ThDP_indexes['C1']
+    C1_coords = ini_atoms.atoms[ThDP_indexes['C1']].position
+
+    # get all C's in list 
+    ini_atom_types = list(ini_atoms.types)
+    ini_C_indexes = [i for i, x in enumerate(ini_atom_types) if x == 'C']
+
+    # search for C2, should be C=C distance away from C1 
+    potential_C2_indexes = []
+    for i in ini_C_indexes:
+        if i == C1_index:
+            continue
+        else:
+            curr_C_coords = ini_atoms.positions[i]
+            curr_dist = get_dist(C1_coords,curr_C_coords)
+            curr_err = abs(curr_dist-bond_dists['C=C'])
+            if curr_err < threshold:
+                potential_C2_indexes.append(i)
+
+    if len(potential_C2_indexes) != 1:
+        print('ERROR FINDING C2 ATOM')
+        return None
+    else:
+        C2_index = potential_C2_indexes[0]
+        C2_coords = ini_atoms.atoms[C2_index].position
+
+    # search for O1
+    ini_O_indexes = [i for i, x in enumerate(ini_atom_types) if x == 'O']
+    potential_O1_indexes = []
+    for i in ini_O_indexes:
+        curr_O_coords = ini_atoms.positions[i]
+        curr_dist = get_dist(C2_coords,curr_O_coords)
+        curr_err = abs(curr_dist-bond_dists['C-O'])
+        if curr_err < threshold:
+            potential_O1_indexes.append(i)
     
+    if len(potential_O1_indexes) != 1:
+        print(potential_O1_indexes)
+        print('ERROR FINDING O1 ATOM')
+        return None
+    else:
+        O1_index = potential_O1_indexes[0]
+        
+    INO_important_indexes = {'C1':C1_index,'C2':C2_index,'O1':O1_index}
+    return INO_important_indexes   
+
+def get_inp_indexes(inp_atoms):
+    # Identify the important atom indexes of the ThDP cofactor
+    # {'Carbonyl_Carbon (C1)':index...}
+    ThDP_indexes =  get_ThDP_indexes(inp_atoms)
+    C1_index = ThDP_indexes['C1']
+    C1_coords = inp_atoms.atoms[ThDP_indexes['C1']].position
+
+    # get all C's in list 
+    inp_atom_types = list(inp_atoms.types)
+    inp_C_indexes = [i for i, x in enumerate(inp_atom_types) if x == 'C']
+
+    # search for C2, should be C=C distance away from C1 
+    potential_C2_indexes = []
+    for i in inp_C_indexes:
+        if i == C1_index:
+            continue
+        else:
+            curr_C_coords = inp_atoms.positions[i]
+            curr_dist = get_dist(C1_coords,curr_C_coords)
+            curr_err = abs(curr_dist-bond_dists['C-C'])
+            if curr_err < threshold:
+                potential_C2_indexes.append(i)
+
+    if len(potential_C2_indexes) != 1:
+        print('ERROR FINDING C2 ATOM')
+        return None
+    else:
+        C2_index = potential_C2_indexes[0]
+        C2_coords = inp_atoms.atoms[C2_index].position
+
+    # search for O1
+    #inp_O_indexes = [i for i, x in enumerate(inp_atom_types) if x == 'O']
+    #potential_O1_indexes = []
+    #for i in inp_O_indexes:
+    #    curr_O_coords = inp_atoms.positions[i]
+    #    curr_dist = get_dist(C2_coords,curr_O_coords)
+    #    curr_err = abs(curr_dist-bond_dists['C-O'])
+    #    if curr_err < threshold:
+    #        potential_O1_indexes.append(i)
+    #
+    #if len(potential_O1_indexes) != 1:
+    #    print(potential_O1_indexes)
+    #    print('ERROR FINDING O1 ATOM')
+    #    return None
+    #else:
+    #    O1_index = potential_O1_indexes[0]    
+    #INP_important_indexes = {'C1':C1_index,'C2':C2_index,'O1':O1_index}
+    
+    INP_important_indexes = {'C1':C1_index,'C2':C2_index}
+
+    return INP_important_indexes   
+
+def write_MM_orca_script(active_atoms_str,total_MM_charge,output_path):
+    # Define the input and output file paths
+    input_file = "scripts/template_MM_script.inp"
+    # Open the input file and read its contents
+    with open(input_file, 'r') as file:
+        content = file.read()
+    
+    # Replace the {} placeholders with the variable values
+    content = content.replace("{}", "{" + active_atoms_str + "}" , 1)  # First occurrence
+    # Add the custom line to the end
+    custom_line = "*pdbfile " + str(total_MM_charge) +" 1 qm_complex.pdb"    
+    content = content.replace("*pdbfile", custom_line , 1)  # First occurrence
+    content += '\n'
+    
+    # Write the modified content to the output file
+    file_name = "mm_opt.inp"
+    output_file = output_path + file_name
+    # Check if the directory exists
+    if not os.path.exists(output_path):
+        print(f"Directory '{output_path}' does not exist. Creating it...")
+        os.makedirs(output_path)
+    with open(output_file, 'w') as file:
+        file.write(content)
+    
+    print(f"MM File processed and saved as {output_file}")
+
+def write_QMMM_orca_script(QM_atoms_str,active_atoms_str,total_QM_charge,output_path):
+    # Define the input and output file paths
+    input_file = "scripts/template_QMMM_script.inp"    
+    # Open the input file and read its contents
+    with open(input_file, 'r') as file:
+        content = file.read()
+    
+    # Replace the {} placeholders with the variable values
+    content = content.replace("{}", "{" + QM_atoms_str + "}" , 1)  # First occurrence
+    content = content.replace("{}", "{" + active_atoms_str + "}", 1)  # Second occurrence
+    # Add the custom line to the end
+    custom_line = "*pdbfile " + str(total_QM_charge) +" 1 qm_complex.pdb\n"
+    content += custom_line
+    
+    # Write the modified content to the output file
+    file_name = "opt.inp"
+    output_file = output_path + file_name
+    # Check if the directory exists
+    if not os.path.exists(output_path):
+        print(f"Directory '{output_path}' does not exist. Creating it...")
+        os.makedirs(output_path)
+    with open(output_file, 'w') as file:
+        file.write(content)
+    print(f"Complex QM/MM File processed and saved as {output_file}")
+    
+def write_resids_to_csv(output_path,file_name,QM_residue_list,active_residue_list):
+    
+    output_file = output_path + file_name
+    # Write to the CSV
+    if not os.path.exists(output_path):
+        print(f"Directory '{output_path}' does not exist. Creating it...")
+        os.makedirs(output_path)
+    with open(output_file, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(['QM RESIDUES'] + QM_residue_list)  # Write first list with label
+        writer.writerow(['ACTIVE RESIDUES'] + active_residue_list)  # Write second list with label
+
+    print(f"Data written to {output_file}")

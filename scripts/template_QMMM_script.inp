@@ -1,6 +1,6 @@
-! QMMM HF-3C opt
+! QMMM XTB OPT NUMFREQ
 % PAL NPROCS 32 END 
-% Maxcore 4500 
+% Maxcore 3000 
 % QMMM 
     QMAtoms {} end 
     ActiveAtoms {} end 
@@ -8,5 +8,6 @@
     ORCAFFFilename "qm_complex.ORCAFF.prms" 
 END
 % Geom
+    Calc_Hess true
     Maxiter 1000 
 END
