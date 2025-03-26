@@ -1,0 +1,16 @@
+! QMMM XTB OPT 
+% PAL NPROCS 32 END 
+% Maxcore 3000 
+% QMMM 
+    QMAtoms {} end 
+    ActiveAtoms {} end 
+    OptRegion_FixedAtoms {} end
+    Rigid_MM_Water true
+    ORCAFFFilename "qm_complex.ORCAFF.prms" 
+END
+% Geom
+    Calc_Hess true
+    NResetHess 20
+    NStepsInResetHess 5
+    Scan B 
+END
