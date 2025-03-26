@@ -8,3 +8,5 @@
 *.frcmod
 *.mol2
 *.log
+*.pdbqt
+*.mdcrd
