@@ -633,6 +633,74 @@ def get_ini_indexes(ini_atoms):
     INI_important_indexes = {'C1':C1_index,'C2':C2_index,'C3':C2_index,'O1':O1_index,'CO2_0':CO2_oxygens[0],'CO2_1':CO2_oxygens[1]}
     return INI_important_indexes
 
+def get_ino_protonated_indexes(ino_atoms):
+    # Identify the important atom indexes of the ThDP cofactor
+    # {'Carbonyl_Carbon (C1)':index...}
+    ThDP_indexes =  get_ThDP_indexes(ino_atoms)
+    C1_index = ThDP_indexes['C1']
+    C1_coords = ino_atoms.atoms[ThDP_indexes['C1']].position
+
+    # get all C's in list 
+    ino_atom_types = list(ino_atoms.types)
+    ino_C_indexes = [i for i, x in enumerate(ino_atom_types) if x == 'C']
+
+    # search for C2, should be C=C distance away from C1 
+    potential_C2_indexes = []
+    for i in ino_C_indexes:
+        if i == C1_index:
+            continue
+        else:
+            curr_C_coords = ino_atoms.positions[i]
+            curr_dist = get_dist(C1_coords,curr_C_coords)
+            curr_err = abs(curr_dist-bond_dists['C=C'])
+            if curr_err < threshold:
+                potential_C2_indexes.append(i)
+
+    if len(potential_C2_indexes) != 1:
+        print('ERROR FINDING C2 ATOM')
+        return None
+    else:
+        C2_index = potential_C2_indexes[0]
+        C2_coords = ino_atoms.atoms[C2_index].position
+
+    # search for O1
+    ini_O_indexes = [i for i, x in enumerate(ino_atom_types) if x == 'O']
+    potential_O1_indexes = []
+    for i in ini_O_indexes:
+        curr_O_coords = ino_atoms.positions[i]
+        curr_dist = get_dist(C2_coords,curr_O_coords)
+        curr_err = abs(curr_dist-bond_dists['C-O'])
+        if curr_err < threshold:
+            potential_O1_indexes.append(i)
+    
+    if len(potential_O1_indexes) != 1:
+        print(potential_O1_indexes)
+        print('ERROR FINDING O1 ATOM')
+        return None
+    else:
+        O1_index = potential_O1_indexes[0]
+
+    O1_coords = ino_atoms.positions[O1_index]
+    # search for H
+    ino_H_indexes = [i for i, x in enumerate(ino_atom_types) if x == 'H']
+    potential_H_indexes = []
+    for i in ino_H_indexes:
+        curr_H_coords = ino_atoms.positions[i]
+        curr_dist = get_dist(O1_coords,curr_H_coords)
+        curr_err = abs(curr_dist-bond_dists['O-H'])
+        if curr_err < threshold:
+            potential_H_indexes.append(i)
+    
+    if len(potential_H_indexes) != 1:
+        print(potential_H_indexes)
+        print('ERROR FINDING H ATOM')
+        return None
+    else:
+        H_index = potential_H_indexes[0]
+        
+    INO_important_indexes = {'C1':C1_index,'C2':C2_index,'O1':O1_index,'H':H_index}
+    return INO_important_indexes   
+
 def get_ino_indexes(ini_atoms):
     # ini_atoms is the universe of just the INI residue  
 
@@ -683,7 +751,7 @@ def get_ino_indexes(ini_atoms):
         O1_index = potential_O1_indexes[0]
         
     INO_important_indexes = {'C1':C1_index,'C2':C2_index,'O1':O1_index}
-    return INO_important_indexes   
+    return INO_important_indexes 
 
 def get_inp_indexes(inp_atoms):
     # Identify the important atom indexes of the ThDP cofactor
