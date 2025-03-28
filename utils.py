@@ -349,6 +349,7 @@ def get_substrate_aka_indexes(substrate_atoms:mda.core.universe.Universe):
         if C_C_err < threshold: 
             if found_C3 == True:
                 print('UH OH! More than one carboxylic acid carbon was found')
+                
                 return None
             else:
                 C3_index = i    
