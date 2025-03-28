@@ -5,13 +5,14 @@ from scipy.optimize import minimize
 from scipy.spatial.transform import Rotation as R
 import os
 import csv
+import re 
 
 bond_dists ={'C-C':1.53,'C=C':1.35,'long C-C':1.64,'CO2 C-O':1.27,'C=O':1.23,'C-O':1.35,'C=N':1.35,'C-S':1.71,'S--N':2.45,'N-H':1.05,'C-N':1.382,'O-H':1.05}
-threshold = 0.1
+threshold = 0.15
 
 def get_atom_clashes(universe,atom_indices,threshold):
     # Create an AtomGroup for the specified atom indices
-    nearby_atoms = universe.select_atoms(f"protein and (around " + str(threshold) + f" index {' '.join(map(str, atom_indices))})")
+    nearby_atoms = universe.select_atoms(f"(around " + str(threshold) + f" index {' '.join(map(str, atom_indices))})")
     return len(nearby_atoms)
 
 def get_atom_position(mol_universe:mda.core.universe.Universe,index:int):
@@ -485,7 +486,6 @@ def get_atoms_by_distance(mol_universe:mda.Universe,dist1:float,dist2:float,atom
     # do the same for the active atoms (which should include the QM atoms) 
     active_atoms = mol_universe.select_atoms("(around " + str(dist2) + " index " + str(atom_id) + ") or resname MG")
     active_residues = set([atom.residue for atom in active_atoms])
-    print(active_residues)
 
     # get all the atoms that belong to the residues for each of these groups 
     QM_atoms = mol_universe.select_atoms(" or ".join([f"resid {residue.resid}" for residue in QM_residues]))
@@ -498,17 +498,29 @@ def get_atoms_by_distance(mol_universe:mda.Universe,dist1:float,dist2:float,atom
     
     return QM_residues, active_residues, QM_atoms_indexes,active_atoms_indexes,fixed_atoms_indexes
 
+def get_MM_atoms_by_distance(mol_universe:mda.Universe,dist1:float,atom_id:int):
+    
+    # get atoms a certain distance away from the carbonyl carbon  
+    atom_shell= mol_universe.select_atoms("around " + str(dist1) + " index " + str(atom_id))
+    # get the residues those atoms belong to
+    active_residues = set([atom.residue for atom in atom_shell])
+
+    # get all the atoms that belong to the residues for each of these groups 
+    active_atoms = mol_universe.select_atoms(" or ".join([f"resid {residue.resid}" for residue in active_residues]))
+    active_atoms_indexes = [curr_atom.index for curr_atom in active_atoms]
+    
+    return active_residues, active_atoms_indexes
+
 def get_water_by_distance(mol_universe:mda.Universe,dist1:float,dist2:float,dist3:float,atom_id:int):
     
     # get atoms a certain distance away from the carbonyl carbon  
-    QM_shell= mol_universe.select_atoms("(around " + str(dist1) + " index " + str(atom_id) + ") or resname MG")
+    QM_shell= mol_universe.select_atoms("(around " + str(dist1) + " index " + str(atom_id) + ") or resname MG or resid 55")
     # get the residues those atoms belong to
     QM_residues = set([atom.residue for atom in QM_shell])
     # do the same for the active atoms (which should include the QM atoms) 
-    selection = "(around "+str(dist2)+" index "+str(atom_id)+") or (resname WAT and (around "+str(dist3)+" index "+str(atom_id)+")) or resname MG"
+    selection = "(around "+str(dist2)+" index "+str(atom_id)+") or (resname WAT and (around "+str(dist3)+" index "+str(atom_id)+")) or resname MG or resid 55"
     active_atoms = mol_universe.select_atoms(selection)
     active_residues = set([atom.residue for atom in active_atoms])
-    print(active_residues)
     # get all the atoms that belong to the residues for each of these groups 
     QM_atoms = mol_universe.select_atoms(" or ".join([f"resid {residue.resid}" for residue in QM_residues]))
     QM_atoms_indexes = [curr_atom.index for curr_atom in QM_atoms]
@@ -602,7 +614,7 @@ def get_ini_indexes(ini_atoms):
         else:
             curr_C_coords = ini_atoms.positions[i]
             curr_dist = get_dist(C2_coords,curr_C_coords)
-            curr_err = abs(curr_dist-bond_dists['long C-C'])
+            curr_err = abs(curr_dist-bond_dists['C-C'])
             if curr_err < threshold:
                 potential_C3_indexes.append(i)
 
@@ -629,77 +641,9 @@ def get_ini_indexes(ini_atoms):
         else:
             C3_index = refined_C3_indexes[0]
             CO2_oxygens = refined_CO2_oxygens[0]
-        
-    INI_important_indexes = {'C1':C1_index,'C2':C2_index,'C3':C2_index,'O1':O1_index,'CO2_0':CO2_oxygens[0],'CO2_1':CO2_oxygens[1]}
+    INI_important_indexes = {'C1':C1_index,'C2':C2_index,'C3':C3_index,'O1':O1_index,'CO2_0':CO2_oxygens[0],'CO2_1':CO2_oxygens[1]}
     return INI_important_indexes
 
-def get_ino_protonated_indexes(ino_atoms):
-    # Identify the important atom indexes of the ThDP cofactor
-    # {'Carbonyl_Carbon (C1)':index...}
-    ThDP_indexes =  get_ThDP_indexes(ino_atoms)
-    C1_index = ThDP_indexes['C1']
-    C1_coords = ino_atoms.atoms[ThDP_indexes['C1']].position
-
-    # get all C's in list 
-    ino_atom_types = list(ino_atoms.types)
-    ino_C_indexes = [i for i, x in enumerate(ino_atom_types) if x == 'C']
-
-    # search for C2, should be C=C distance away from C1 
-    potential_C2_indexes = []
-    for i in ino_C_indexes:
-        if i == C1_index:
-            continue
-        else:
-            curr_C_coords = ino_atoms.positions[i]
-            curr_dist = get_dist(C1_coords,curr_C_coords)
-            curr_err = abs(curr_dist-bond_dists['C=C'])
-            if curr_err < threshold:
-                potential_C2_indexes.append(i)
-
-    if len(potential_C2_indexes) != 1:
-        print('ERROR FINDING C2 ATOM')
-        return None
-    else:
-        C2_index = potential_C2_indexes[0]
-        C2_coords = ino_atoms.atoms[C2_index].position
-
-    # search for O1
-    ini_O_indexes = [i for i, x in enumerate(ino_atom_types) if x == 'O']
-    potential_O1_indexes = []
-    for i in ini_O_indexes:
-        curr_O_coords = ino_atoms.positions[i]
-        curr_dist = get_dist(C2_coords,curr_O_coords)
-        curr_err = abs(curr_dist-bond_dists['C-O'])
-        if curr_err < threshold:
-            potential_O1_indexes.append(i)
-    
-    if len(potential_O1_indexes) != 1:
-        print(potential_O1_indexes)
-        print('ERROR FINDING O1 ATOM')
-        return None
-    else:
-        O1_index = potential_O1_indexes[0]
-
-    O1_coords = ino_atoms.positions[O1_index]
-    # search for H
-    ino_H_indexes = [i for i, x in enumerate(ino_atom_types) if x == 'H']
-    potential_H_indexes = []
-    for i in ino_H_indexes:
-        curr_H_coords = ino_atoms.positions[i]
-        curr_dist = get_dist(O1_coords,curr_H_coords)
-        curr_err = abs(curr_dist-bond_dists['O-H'])
-        if curr_err < threshold:
-            potential_H_indexes.append(i)
-    
-    if len(potential_H_indexes) != 1:
-        print(potential_H_indexes)
-        print('ERROR FINDING H ATOM')
-        return None
-    else:
-        H_index = potential_H_indexes[0]
-        
-    INO_important_indexes = {'C1':C1_index,'C2':C2_index,'O1':O1_index,'H':H_index}
-    return INO_important_indexes   
 
 def get_ino_indexes(ini_atoms):
     # ini_atoms is the universe of just the INI residue  
@@ -744,14 +688,13 @@ def get_ino_indexes(ini_atoms):
             potential_O1_indexes.append(i)
     
     if len(potential_O1_indexes) != 1:
-        print(potential_O1_indexes)
         print('ERROR FINDING O1 ATOM')
         return None
     else:
         O1_index = potential_O1_indexes[0]
         
     INO_important_indexes = {'C1':C1_index,'C2':C2_index,'O1':O1_index}
-    return INO_important_indexes 
+    return INO_important_indexes   
 
 def get_inp_indexes(inp_atoms):
     # Identify the important atom indexes of the ThDP cofactor
@@ -805,7 +748,7 @@ def get_inp_indexes(inp_atoms):
 
     return INP_important_indexes   
 
-def write_MM_orca_script(active_atoms_str,total_MM_charge,output_path):
+def write_MM_orca_script(active_atoms_str,total_MM_charge,output_path,file_name):
     # Define the input and output file paths
     input_file = "scripts/template_MM_script.inp"
     # Open the input file and read its contents
@@ -813,6 +756,8 @@ def write_MM_orca_script(active_atoms_str,total_MM_charge,output_path):
         content = file.read()
     
     # Replace the {} placeholders with the variable values
+    content = content.replace("OptRegion_FixedAtoms {} end", "", 1)  # Third occurrence
+    
     content = content.replace("{}", "{" + active_atoms_str + "}" , 1)  # First occurrence
     # Add the custom line to the end
     custom_line = "*pdbfile " + str(total_MM_charge) +" 1 qm_complex.pdb"    
@@ -820,7 +765,6 @@ def write_MM_orca_script(active_atoms_str,total_MM_charge,output_path):
     content += '\n'
     
     # Write the modified content to the output file
-    file_name = "mm_opt.inp"
     output_file = output_path + file_name
     # Check if the directory exists
     if not os.path.exists(output_path):
@@ -831,7 +775,7 @@ def write_MM_orca_script(active_atoms_str,total_MM_charge,output_path):
     
     print(f"MM File processed and saved as {output_file}")
 
-def write_QMMM_orca_script(QM_atoms_str,active_atoms_str,total_QM_charge,output_path):
+def write_QMMM_orca_script(QM_atoms_str,active_atoms_str,total_QM_charge,output_path,file_name,fixed_atoms_str=None):
     # Define the input and output file paths
     input_file = "scripts/template_QMMM_script.inp"    
     # Open the input file and read its contents
@@ -841,12 +785,16 @@ def write_QMMM_orca_script(QM_atoms_str,active_atoms_str,total_QM_charge,output_
     # Replace the {} placeholders with the variable values
     content = content.replace("{}", "{" + QM_atoms_str + "}" , 1)  # First occurrence
     content = content.replace("{}", "{" + active_atoms_str + "}", 1)  # Second occurrence
+    if fixed_atoms_str is not None:
+        content = content.replace("{}", "{" + fixed_atoms_str + "}", 1)  # Third occurrence
+    else:
+        content = content.replace("OptRegion_FixedAtoms {} end", "", 1)  # Third occurrence
+        
     # Add the custom line to the end
-    custom_line = "*pdbfile " + str(total_QM_charge) +" 1 qm_complex.pdb\n"
+    custom_line = "*pdbfile " + str(total_QM_charge) +" 1 mm_opt.pdb\n"
     content += custom_line
     
     # Write the modified content to the output file
-    file_name = "opt.inp"
     output_file = output_path + file_name
     # Check if the directory exists
     if not os.path.exists(output_path):
@@ -869,3 +817,114 @@ def write_resids_to_csv(output_path,file_name,QM_residue_list,active_residue_lis
         writer.writerow(['ACTIVE RESIDUES'] + active_residue_list)  # Write second list with label
 
     print(f"Data written to {output_file}")
+
+def read_resids_from_csv(file_path):
+    unique_lists = []
+    
+    # Read the CSV file
+    with open(file_path, 'r') as csv_file:
+        reader = csv.reader(csv_file)
+        
+        # Process each row, omitting the first column and ensuring uniqueness
+        for row in reader:
+            unique_lists.append(list(set(row[1:])))  # Skip the first column and ensure uniqueness
+
+    QM_resids = unique_lists[0]
+    QM_resids = [int(i) for i in QM_resids]
+    
+    active_resids = unique_lists[1]
+    active_resids = [int(i) for i in active_resids]
+    return QM_resids, active_resids
+
+def extract_QM_input_info(filename):
+    with open(filename, 'r') as file:
+        lines = file.readlines()
+        
+    for line in lines:
+        if 'QMAtoms' in line:
+            QM_atoms = re.search(r'\{(.*?)\}', line).group(1)
+        if 'ActiveAtoms' in line:
+            Active_atoms = re.search(r'\{(.*?)\}', line).group(1)
+        if 'pdbfile' in line:
+            charge = re.search(r'(-?\d+)', line).group(1)    
+        
+    return QM_atoms, Active_atoms, charge
+            
+
+def extract_fixed_atoms(filename):
+    with open(filename, 'r') as file:
+        lines = file.readlines()
+
+    capturing = False
+    numbers = []
+
+    for line in lines:
+        if "Fixed atoms used in optimizer" in line:
+            capturing = True
+            numbers.extend(re.findall(r'\d+', line))  # Extract all numbers in the line
+        elif "Constrain bonds and angle of MM waters" in line:
+            capturing = False
+            break
+        elif capturing:
+            numbers.extend(re.findall(r'\d+', line))  # Extract all numbers in the line
+
+    return list(map(int, numbers)) if numbers else None
+
+def write_scan_script(QM_atoms_str,active_atoms_str,fixed_atoms_str,total_QM_charge,scan_string,output_path):
+    # Define the input and output file paths
+    input_file = "scripts/template_scan_script.inp"    
+    # Open the input file and read its contents
+    with open(input_file, 'r') as file:
+        content = file.read()
+    
+    # Replace the {} placeholders with the variable values
+    content = content.replace("{}", "{" + QM_atoms_str + "}" , 1)  # First occurrence
+    content = content.replace("{}", "{" + active_atoms_str + "}", 1)  # Second occurrence
+    content = content.replace("{}", "{" + fixed_atoms_str + "}", 1)  # Third occurrence
+    
+    # add the scan line
+    content = content.replace("Scan B", scan_string, 1)  # Third occurrence
+
+
+    # Add the custom line to the end
+    custom_line = "*pdbfile " + str(total_QM_charge) +" 1 opt.pdb\n"
+    content += custom_line
+    
+    # Write the modified content to the output file
+    file_name = "scan.inp"
+    output_file = output_path + file_name
+    # Check if the directory exists
+    if not os.path.exists(output_path):
+        print(f"Directory '{output_path}' does not exist. Creating it...")
+        os.makedirs(output_path)
+    with open(output_file, 'w') as file:
+        file.write(content)
+    print(f"Complex QM/MM File processed and saved as {output_file}")
+
+    
+def find_bonded_atoms(universe, atom_index):
+    """
+    Find all atoms recursively bonded to the given atom index.
+    
+    Parameters:
+    universe (MDAnalysis.Universe): The molecular system.
+    atom_index (int): The index of the starting atom.
+    
+    Returns:
+    set: A set of atom indices that are bonded to the given atom.
+    """
+    bonded_atoms = set()
+    to_explore = {atom_index}
+    
+    while to_explore:
+        current_atom = to_explore.pop()
+        if current_atom in bonded_atoms:
+            continue
+        bonded_atoms.add(current_atom)
+        neighbors = set(
+            atom.index for bond in universe.bonds if current_atom in (bond[0].index, bond[1].index) 
+            for atom in bond if atom.index != current_atom
+        )
+        to_explore.update(neighbors - bonded_atoms)
+    
+    return bonded_atoms
